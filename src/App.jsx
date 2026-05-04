@@ -2,15 +2,7 @@ import { useState } from 'react';
 import './App.css';
 import { supabase } from './supabaseClient';
 
-// ============================================================
-// PARSER: Converts an arithmetic expression into an AST
-// respecting operator precedence (* / before + -)
-// ============================================================
 
-/**
- * Tokenizer — splits input into operand, operator, and parenthesis tokens.
- * Supports multi-character variable names and single-char operators.
- */
 function tokenize(expr) {
   const tokens = [];
   let i = 0;
@@ -158,15 +150,6 @@ function generateTAC(ast) {
   return instructions;
 }
 
-// ============================================================
-// SUPABASE: Save expression and TAC instructions to the database
-// ============================================================
-
-/**
- * Inserts the expression into the `expressions` table,
- * then inserts each TAC instruction into `tac_instructions`.
- * Runs in the background — errors are logged but don't block the UI.
- */
 async function saveToSupabase(expressionText, tac) {
   try {
     // 1. Insert the expression row
@@ -208,24 +191,13 @@ async function saveToSupabase(expressionText, tac) {
   }
 }
 
-// ============================================================
-// REACT COMPONENT
-// ============================================================
 
 function App() {
   const [expression, setExpression] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
 
-  /**
-   * Handles the "Generate" button click:
-   * 1. Validates input
-   * 2. Tokenizes the expression
-   * 3. Parses into AST (with proper precedence)
-   * 4. Generates TAC instructions
-   * 5. Stores result for rendering all four representations
-   * 6. Saves expression + instructions to Supabase (background)
-   */
+
   const handleGenerate = () => {
     setError('');
     setResult(null);
@@ -255,7 +227,7 @@ function App() {
     }
   };
 
-  // Allow pressing Enter to generate
+  
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') handleGenerate();
   };
