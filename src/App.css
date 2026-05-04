@@ -1,0 +1,312 @@
+/* ===== App Layout ===== */
+.app {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+}
+
+/* ===== Team Names ===== */
+.team-names {
+  text-align: left;
+  margin-bottom: 1.5rem;
+}
+
+.team-names p {
+  color: #000;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ===== Header ===== */
+.header {
+  text-align: center;
+  margin-bottom: 2.5rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.header__badge {
+  display: inline-block;
+  padding: 0.3rem 0.9rem;
+  background: var(--accent-glow);
+  border: 1px solid var(--border-accent);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 1rem;
+}
+
+.header__title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+  margin-bottom: 0.5rem;
+}
+
+.header__subtitle {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* ===== Input Section ===== */
+.input-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.75rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  transition: border-color var(--transition-normal);
+}
+
+.input-section:focus-within {
+  border-color: var(--border-accent);
+}
+
+.input-section__label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 0.75rem;
+}
+
+.input-section__row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.input-section__input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.input-section__input::placeholder {
+  color: var(--text-muted);
+}
+
+.input-section__input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.input-section__btn {
+  padding: 0.75rem 1.5rem;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-md);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.input-section__btn:hover {
+  background: var(--accent-secondary);
+  transform: translateY(-1px);
+}
+
+.input-section__btn:active {
+  transform: translateY(0);
+}
+
+/* ===== Error Message ===== */
+.error {
+  margin-top: 1rem;
+  padding: 0.65rem 1rem;
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: var(--radius-sm);
+  color: var(--error);
+  font-size: 0.85rem;
+}
+
+/* ===== Expression Echo ===== */
+.expression-echo {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.expression-echo span {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ===== Output Card ===== */
+.output-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1.25rem;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  animation: fadeSlideUp 0.4s ease forwards;
+  opacity: 0;
+}
+
+.output-card:nth-child(1) { animation-delay: 0s; }
+.output-card:nth-child(2) { animation-delay: 0.08s; }
+.output-card:nth-child(3) { animation-delay: 0.16s; }
+.output-card:nth-child(4) { animation-delay: 0.24s; }
+
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.output-card__header {
+  padding: 0.9rem 1.25rem;
+  background: var(--accent-glow);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.output-card__icon {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.output-card__title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--accent);
+}
+
+.output-card__body {
+  padding: 1.25rem;
+  overflow-x: auto;
+}
+
+/* ===== Output Table ===== */
+.output-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.output-table thead th {
+  padding: 0.5rem 1rem;
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.output-table tbody td {
+  padding: 0.55rem 1rem;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--surface);
+}
+
+.output-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.output-table tbody tr {
+  transition: background var(--transition-fast);
+}
+
+.output-table tbody tr:hover {
+  background: var(--accent-glow);
+}
+
+/* Row number styling */
+.output-table .row-num {
+  color: var(--text-muted);
+}
+
+/* Operator styling */
+.output-table .op {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Result styling */
+.output-table .result {
+  color: var(--accent-secondary);
+  font-weight: 600;
+}
+
+/* Pointer styling (for indirect triple) */
+.output-table .pointer {
+  color: var(--success);
+  font-weight: 600;
+}
+
+/* ===== Footer ===== */
+.footer {
+  text-align: center;
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 600px) {
+  .app {
+    padding: 1.25rem 1rem 3rem;
+  }
+
+  .header__title {
+    font-size: 1.5rem;
+  }
+
+  .input-section__row {
+    flex-direction: column;
+  }
+
+  .input-section__btn {
+    text-align: center;
+  }
+
+  .output-table {
+    font-size: 0.78rem;
+  }
+
+  .output-table thead th,
+  .output-table tbody td {
+    padding: 0.45rem 0.6rem;
+  }
+}
