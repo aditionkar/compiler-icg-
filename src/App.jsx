@@ -73,7 +73,6 @@ function generateTAC(ast) {
   return instructions;
 }
 
-// ==================== SUPABASE ====================
 
 async function saveToSupabase(expressionText, tac) {
   try {

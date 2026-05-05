@@ -1,7 +1,3 @@
-// cParser.js — Simple C-subset tokenizer, parser, and ICG generator
-// Handles: declarations, assignments, for loops, if/else, printf, return
-
-// ==================== TOKENIZER ====================
 
 const KEYWORDS = new Set([
   'int','float','char','double','void','for','while','do',
@@ -64,7 +60,6 @@ function tokenizeC(code) {
   return tokens;
 }
 
-// ==================== PARSER ====================
 
 function parseC(tokens) {
   let pos = 0;
@@ -347,7 +342,6 @@ function parseC(tokens) {
   return parseProgram();
 }
 
-// ==================== ICG GENERATOR ====================
 
 function generateICG(stmts) {
   const instrs = []; // Each: { result, op, op1, op2 } — unified format
