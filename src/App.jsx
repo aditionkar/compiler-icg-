@@ -1,78 +1,7 @@
 import { useState } from 'react';
 import './App.css';
 import { supabase } from './supabaseClient';
-import { tokenizeC, parseC, generateICG } from './cParser';
-
-
-function tokenize(expr) {
-  const tokens = [];
-  let i = 0;
-  while (i < expr.length) {
-    if (expr[i] === ' ') { i++; continue; }
-    if (expr[i] === '(') { tokens.push({ type: 'lparen', value: '(' }); i++; }
-    else if (expr[i] === ')') { tokens.push({ type: 'rparen', value: ')' }); i++; }
-    else if ('+-*/'.includes(expr[i])) { tokens.push({ type: 'op', value: expr[i] }); i++; }
-    else {
-      let name = '';
-      while (i < expr.length && !'+-*/() '.includes(expr[i])) { name += expr[i]; i++; }
-      tokens.push({ type: 'operand', value: name });
-    }
-  }
-  return tokens;
-}
-
-function parseExpression(tokens) {
-  let pos = 0;
-  function parseFactor() {
-    const token = tokens[pos];
-    if (token && token.type === 'lparen') {
-      pos++;
-      const node = parseExpr();
-      if (!tokens[pos] || tokens[pos].type !== 'rparen') throw new Error('Missing closing parenthesis');
-      pos++;
-      return node;
-    }
-    if (!token || token.type !== 'operand') throw new Error(`Expected operand at position ${pos}`);
-    pos++;
-    return { type: 'operand', value: token.value };
-  }
-  function parseTerm() {
-    let left = parseFactor();
-    while (pos < tokens.length && tokens[pos].type === 'op' && '*/'.includes(tokens[pos].value)) {
-      const op = tokens[pos].value; pos++;
-      left = { type: 'binop', op, left, right: parseFactor() };
-    }
-    return left;
-  }
-  function parseExpr() {
-    let left = parseTerm();
-    while (pos < tokens.length && tokens[pos].type === 'op' && '+-'.includes(tokens[pos].value)) {
-      const op = tokens[pos].value; pos++;
-      left = { type: 'binop', op, left, right: parseTerm() };
-    }
-    return left;
-  }
-  const ast = parseExpr();
-  if (pos < tokens.length) throw new Error('Unexpected token: ' + tokens[pos].value);
-  return ast;
-}
-
-function generateTAC(ast) {
-  const instructions = [];
-  let tempCount = 0;
-  function walk(node) {
-    if (node.type === 'operand') return node.value;
-    const left = walk(node.left);
-    const right = walk(node.right);
-    tempCount++;
-    const temp = `t${tempCount}`;
-    instructions.push({ result: temp, op1: left, op: node.op, op2: right });
-    return temp;
-  }
-  walk(ast);
-  return instructions;
-}
-
+import { tokenizeC, parseC, generateICG, optimizeTAC, generateMachineCode } from './cParser';
 
 async function saveToSupabase(expressionText, tac) {
   try {
@@ -98,7 +27,6 @@ async function saveToSupabase(expressionText, tac) {
     console.error('Supabase save failed:', err);
   }
 }
-
 
 // Check if an instruction is a "label" row (e.g. result is "L0:")
 function isLabel(instr) {
@@ -146,53 +74,99 @@ function formatTACLine(instr) {
   return `${instr.result} := ${instr.op1}`;
 }
 
+const getRegexPattern = (type) => {
+  switch (type) {
+    case 'PREPROCESSOR': return '#include';
+    case 'HEADER': return '<[a-zA-Z]+\\.h>';
+    case 'KW': return 'keyword';
+    case 'ID': return '[a-zA-Z_][a-zA-Z0-9_]*';
+    case 'PUNCT': return 'punctuation';
+    case 'OP': return 'operator';
+    case 'NUM': return '[0-9]+(\\.[0-9]+)?';
+    case 'STRING': return `".*" | '.*'`;
+    default: return 'unknown';
+  }
+};
+
+const ASTNode = ({ node, name }) => {
+  if (!node) return null;
+  const isLeaf = typeof node !== 'object' || node === null;
+  
+  if (isLeaf) {
+    return (
+      <div className="ast-node ast-leaf">
+        {name ? <span className="ast-key">{name}: </span> : null}
+        <span className="ast-val">{String(node)}</span>
+      </div>
+    );
+  }
+
+  if (Array.isArray(node)) {
+    return (
+      <div className="ast-node">
+        {name ? <span className="ast-key">{name}</span> : null}
+        <div className="ast-children">
+          {node.map((child, idx) => <ASTNode key={idx} node={child} />)}
+        </div>
+      </div>
+    );
+  }
+
+  const keys = Object.keys(node).filter(k => node[k] !== undefined && node[k] !== null);
+  
+  return (
+    <div className="ast-node">
+      {name ? <span className="ast-key">{name}: </span> : null}
+      <span className="ast-type">{node.type || 'Node'}</span>
+      <div className="ast-children">
+        {keys.map(k => {
+          if (k === 'type') return null;
+          return <ASTNode key={k} node={node[k]} name={k} />;
+        })}
+      </div>
+    </div>
+  );
+};
 
 
 function App() {
-  const [mode, setMode] = useState('expression'); // 'expression' or 'code'
-  const [expression, setExpression] = useState('');
   const [codeInput, setCodeInput] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState('ALL');
+
+  const TABS = [
+    'ALL', 
+    'Tokens', 
+    'Parse Tree', 
+    'TAC', 
+    'Optimized TAC', 
+    'Machine Code'
+  ];
 
   const handleGenerate = () => {
     setError('');
     setResult(null);
 
-    if (mode === 'expression') {
-      const trimmed = expression.trim();
-      if (!trimmed) { setError('Please enter an arithmetic expression.'); return; }
-      try {
-        const tokens = tokenize(trimmed);
-        const ast = parseExpression(tokens);
-        const tac = generateTAC(ast);
-        if (tac.length === 0) { setError('Expression must contain at least one operator.'); return; }
-        setResult({ expression: trimmed, tac, mode: 'expression' });
-        saveToSupabase(trimmed, tac);
-      } catch (err) {
-        setError(`Invalid expression: ${err.message}`);
-      }
-    } else {
-      const trimmed = codeInput.trim();
-      if (!trimmed) { setError('Please enter C code.'); return; }
-      try {
-        const tokens = tokenizeC(trimmed);
-        const ast = parseC(tokens);
-        const tac = generateICG(ast);
-        if (tac.length === 0) { setError('No instructions generated. Check your code.'); return; }
-        setResult({ expression: trimmed, tac, mode: 'code' });
-        saveToSupabase(trimmed.substring(0, 200), tac);
-      } catch (err) {
-        setError(`Parse error: ${err.message}`);
-      }
+    const trimmed = codeInput.trim();
+    if (!trimmed) { setError('Please enter C code.'); return; }
+    try {
+      const tokens = tokenizeC(trimmed);
+      const ast = parseC(tokens);
+      const tac = generateICG(ast);
+      const optTac = optimizeTAC(tac);
+      const machineCode = generateMachineCode(optTac);
+      
+      if (tac.length === 0) { setError('No instructions generated. Check your code.'); return; }
+      
+      setResult({ code: trimmed, tokens, ast, tac, optTac, machineCode });
+      saveToSupabase(trimmed.substring(0, 200), tac);
+      setActiveTab('ALL'); // Reset to ALL tab on new generation
+    } catch (err) {
+      setError(`Parse error: ${err.message}`);
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && mode === 'expression') handleGenerate();
-  };
-
-  // Filter out label rows for quadruple/triple/indirect triple display
   const nonLabelTac = result ? result.tac.filter(i => !isLabel(i)) : [];
   const tempMap = result ? buildTempMap(result.tac) : {};
 
@@ -209,198 +183,241 @@ function App() {
       {/* Header */}
       <header className="header">
         <div className="header__badge">Compiler Design</div>
-        <h1 className="header__title">Intermediate Code Generator</h1>
+        <h1 className="header__title">C Compiler Pipeline</h1>
         <p className="header__subtitle">
-          Generate TAC, Quadruples, Triples &amp; Indirect Triples
+          Lexical Analysis, Parse Tree, Intermediate Code & Optimization
         </p>
       </header>
-
-      {/* Mode Toggle */}
-      <div className="mode-toggle">
-        <button
-          className={`mode-toggle__btn ${mode === 'expression' ? 'active' : ''}`}
-          onClick={() => { setMode('expression'); setResult(null); setError(''); }}
-        >
-          Expression
-        </button>
-        <button
-          className={`mode-toggle__btn ${mode === 'code' ? 'active' : ''}`}
-          onClick={() => { setMode('code'); setResult(null); setError(''); }}
-        >
-          C Code
-        </button>
-      </div>
 
       {/* Input Section */}
       <section className="input-section" id="input-section">
         <label className="input-section__label" htmlFor="main-input">
-          {mode === 'expression' ? 'Enter Expression' : 'Enter C Code'}
+          Enter C Code
         </label>
-
-        {mode === 'expression' ? (
-          <div className="input-section__row">
-            <input
-              id="main-input"
-              className="input-section__input"
-              type="text"
-              placeholder="e.g. a+b-c/d"
-              value={expression}
-              onChange={(e) => setExpression(e.target.value)}
-              onKeyDown={handleKeyDown}
-              autoFocus
-            />
-            <button id="generate-btn" className="input-section__btn" onClick={handleGenerate}>
-              Generate
-            </button>
-          </div>
-        ) : (
-          <div className="input-section__col">
-            <textarea
-              id="main-input"
-              className="input-section__textarea"
-              placeholder={"#include <stdio.h>\nint main() {\n    // paste C code here\n    return 0;\n}"}
-              value={codeInput}
-              onChange={(e) => setCodeInput(e.target.value)}
-              rows={12}
-            />
-            <button id="generate-btn" className="input-section__btn input-section__btn--full" onClick={handleGenerate}>
-              Generate
-            </button>
-          </div>
-        )}
+        <div className="input-section__col">
+          <textarea
+            id="main-input"
+            className="input-section__textarea"
+            placeholder={"#include <stdio.h>\nint main() {\n    // paste C code here\n    return 0;\n}"}
+            value={codeInput}
+            onChange={(e) => setCodeInput(e.target.value)}
+            rows={12}
+          />
+          <button id="generate-btn" className="input-section__btn input-section__btn--full" onClick={handleGenerate}>
+            Compile Code
+          </button>
+        </div>
         {error && <div className="error" id="error-msg">{error}</div>}
       </section>
+
+      {/* Tab Navigation */}
+      {result && (
+        <div className="tab-nav">
+          {TABS.map(tab => (
+            <button 
+              key={tab}
+              className={`tab-nav__btn ${activeTab === tab ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Output */}
       {result && (
         <div id="output-section">
-          <div className="expression-echo">
-            {result.mode === 'expression'
-              ? <>Enter expression: <span>{result.expression}</span></>
-              : <span>C Code — {nonLabelTac.length} instructions generated</span>}
-          </div>
-
-          {/* --- THREE ADDRESS CODE (TAC) --- */}
-          <div className="output-card" id="tac-card">
-            <div className="output-card__header">
-              <div className="output-card__icon"></div>
-              <div className="output-card__title">Three Address Code (TAC)</div>
+          {activeTab === 'ALL' && (
+            <div className="expression-echo">
+              <span>C Code Compiled Successfully</span>
             </div>
-            <div className="output-card__body">
-              {result.mode === 'expression' ? (
+          )}
+
+          {/* --- SYMBOL TABLE --- */}
+          {(activeTab === 'ALL' || activeTab === 'Tokens') && (
+            <div className="output-card">
+              <div className="output-card__header">
+                <div className="output-card__icon"></div>
+                <div className="output-card__title">Lexical Analysis (Tokens)</div>
+              </div>
+              <div className="output-card__body">
                 <table className="output-table">
                   <thead>
-                    <tr><th>No.</th><th>Result</th><th>:=</th><th>Op1</th><th>Op</th><th>Op2</th></tr>
+                    <tr><th>Token Type</th><th>Lexeme</th><th>Pattern (Regex / Rule)</th></tr>
                   </thead>
                   <tbody>
-                    {result.tac.map((instr, idx) => (
+                    {result.tokens.filter(t => t.type !== 'EOF').map((token, idx) => (
                       <tr key={idx}>
-                        <td className="row-num">{idx + 1}.</td>
-                        <td className="result">{instr.result}</td>
-                        <td>:=</td>
-                        <td>{instr.op1}</td>
-                        <td className="op">{instr.op}</td>
-                        <td>{instr.op2}</td>
+                        <td className="token-type">{token.type}</td>
+                        <td className="lexeme">{token.value}</td>
+                        <td className="pattern"><code>{getRegexPattern(token.type)}</code></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              ) : (
+              </div>
+            </div>
+          )}
+
+          {/* --- PARSE TREE (AST) --- */}
+          {(activeTab === 'ALL' || activeTab === 'Parse Tree') && (
+            <div className="output-card">
+              <div className="output-card__header">
+                <div className="output-card__icon"></div>
+                <div className="output-card__title">Parse Tree (AST)</div>
+              </div>
+              <div className="output-card__body ast-container">
+                 <ASTNode node={result.ast} />
+              </div>
+            </div>
+          )}
+
+          {/* --- THREE ADDRESS CODE (TAC) --- */}
+          {(activeTab === 'ALL' || activeTab === 'TAC') && (
+            <div className="output-card" id="tac-card">
+              <div className="output-card__header">
+                <div className="output-card__icon"></div>
+                <div className="output-card__title">Three Address Code (TAC)</div>
+              </div>
+              <div className="output-card__body">
                 <pre className="tac-pre">{
                   result.tac.map((instr, idx) => {
                     if (isLabel(instr)) return `    ${instr.result}`;
-                    // Number only non-label lines
                     let num = 0, count = 0;
                     for (let k = 0; k <= idx; k++) { if (!isLabel(result.tac[k])) count++; }
                     num = count;
                     return `${String(num).padStart(3)}.  ${formatTACLine(instr)}`;
                   }).join('\n')
                 }</pre>
-              )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* --- QUADRUPLE --- */}
-          <div className="output-card" id="quadruple-card">
-            <div className="output-card__header">
-              <div className="output-card__icon"></div>
-              <div className="output-card__title">Quadruple</div>
+          {(activeTab === 'ALL' || activeTab === 'TAC') && (
+            <div className="output-card" id="quadruple-card">
+              <div className="output-card__header">
+                <div className="output-card__icon"></div>
+                <div className="output-card__title">Quadruple</div>
+              </div>
+              <div className="output-card__body">
+                <table className="output-table">
+                  <thead>
+                    <tr><th>No.</th><th>Op</th><th>Arg1</th><th>Arg2</th><th>Result</th></tr>
+                  </thead>
+                  <tbody>
+                    {nonLabelTac.map((instr, idx) => (
+                      <tr key={idx}>
+                        <td className="row-num">({idx + 1})</td>
+                        <td className="op">{instr.op}</td>
+                        <td>{instr.op1}</td>
+                        <td>{instr.op2}</td>
+                        <td className="result">{instr.result}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div className="output-card__body">
-              <table className="output-table">
-                <thead>
-                  <tr><th>No.</th><th>Op</th><th>Arg1</th><th>Arg2</th><th>Result</th></tr>
-                </thead>
-                <tbody>
-                  {nonLabelTac.map((instr, idx) => (
-                    <tr key={idx}>
-                      <td className="row-num">({idx + 1})</td>
-                      <td className="op">{instr.op}</td>
-                      <td>{instr.op1}</td>
-                      <td>{instr.op2}</td>
-                      <td className="result">{instr.result}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          )}
 
           {/* --- TRIPLE --- */}
-          <div className="output-card" id="triple-card">
-            <div className="output-card__header">
-              <div className="output-card__icon"></div>
-              <div className="output-card__title">Triple</div>
+          {(activeTab === 'ALL' || activeTab === 'TAC') && (
+            <div className="output-card" id="triple-card">
+              <div className="output-card__header">
+                <div className="output-card__icon"></div>
+                <div className="output-card__title">Triple</div>
+              </div>
+              <div className="output-card__body">
+                <table className="output-table">
+                  <thead>
+                    <tr><th>No.</th><th>Op</th><th>Arg1</th><th>Arg2</th></tr>
+                  </thead>
+                  <tbody>
+                    {nonLabelTac.map((instr, idx) => (
+                      <tr key={idx}>
+                        <td className="row-num">({idx + 1})</td>
+                        <td className="op">{instr.op}</td>
+                        <td>{tripleRef(instr.op1, tempMap)}</td>
+                        <td>{tripleRef(instr.op2, tempMap)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div className="output-card__body">
-              <table className="output-table">
-                <thead>
-                  <tr><th>No.</th><th>Op</th><th>Arg1</th><th>Arg2</th></tr>
-                </thead>
-                <tbody>
-                  {nonLabelTac.map((instr, idx) => (
-                    <tr key={idx}>
-                      <td className="row-num">({idx + 1})</td>
-                      <td className="op">{instr.op}</td>
-                      <td>{tripleRef(instr.op1, tempMap)}</td>
-                      <td>{tripleRef(instr.op2, tempMap)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          )}
 
           {/* --- INDIRECT TRIPLE --- */}
-          <div className="output-card" id="indirect-triple-card">
-            <div className="output-card__header">
-              <div className="output-card__icon"></div>
-              <div className="output-card__title">Indirect Triple</div>
+          {(activeTab === 'ALL' || activeTab === 'TAC') && (
+            <div className="output-card" id="indirect-triple-card">
+              <div className="output-card__header">
+                <div className="output-card__icon"></div>
+                <div className="output-card__title">Indirect Triple</div>
+              </div>
+              <div className="output-card__body">
+                <table className="output-table">
+                  <thead>
+                    <tr><th>Pointer</th><th>No.</th><th>Op</th><th>Arg1</th><th>Arg2</th></tr>
+                  </thead>
+                  <tbody>
+                    {nonLabelTac.map((instr, idx) => (
+                      <tr key={idx}>
+                        <td className="pointer">{40 + idx}</td>
+                        <td className="row-num">({idx + 1})</td>
+                        <td className="op">{instr.op}</td>
+                        <td>{tripleRef(instr.op1, tempMap)}</td>
+                        <td>{tripleRef(instr.op2, tempMap)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div className="output-card__body">
-              <table className="output-table">
-                <thead>
-                  <tr><th>Pointer</th><th>No.</th><th>Op</th><th>Arg1</th><th>Arg2</th></tr>
-                </thead>
-                <tbody>
-                  {nonLabelTac.map((instr, idx) => (
-                    <tr key={idx}>
-                      <td className="pointer">{40 + idx}</td>
-                      <td className="row-num">({idx + 1})</td>
-                      <td className="op">{instr.op}</td>
-                      <td>{tripleRef(instr.op1, tempMap)}</td>
-                      <td>{tripleRef(instr.op2, tempMap)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          )}
+
+          {/* --- OPTIMIZED TAC --- */}
+          {(activeTab === 'ALL' || activeTab === 'Optimized TAC') && (
+            <div className="output-card">
+              <div className="output-card__header">
+                <div className="output-card__icon" style={{backgroundColor: '#10b981'}}></div>
+                <div className="output-card__title">Optimized Three Address Code</div>
+              </div>
+              <div className="output-card__body">
+                <pre className="tac-pre">{
+                  result.optTac.map((instr, idx) => {
+                    if (isLabel(instr)) return `    ${instr.result}`;
+                    let num = 0, count = 0;
+                    for (let k = 0; k <= idx; k++) { if (!isLabel(result.optTac[k])) count++; }
+                    num = count;
+                    return `${String(num).padStart(3)}.  ${formatTACLine(instr)}`;
+                  }).join('\n')
+                }</pre>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* --- MACHINE CODE --- */}
+          {(activeTab === 'ALL' || activeTab === 'Machine Code') && (
+            <div className="output-card">
+              <div className="output-card__header">
+                <div className="output-card__icon"></div>
+                <div className="output-card__title">Machine Instruction Code</div>
+              </div>
+              <div className="output-card__body">
+                <pre className="tac-pre">{
+                  result.machineCode.join('\n')
+                }</pre>
+              </div>
+            </div>
+          )}
+          
         </div>
       )}
 
       <footer className="footer">
-        Intermediate Code Generation — Compiler Design Tool
+        C Compiler Pipeline — Compiler Design Tool
       </footer>
     </div>
   );

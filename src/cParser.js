@@ -9,8 +9,20 @@ function tokenizeC(code) {
   let i = 0;
   while (i < code.length) {
     if (/\s/.test(code[i])) { i++; continue; }
-    // Skip #include lines
-    if (code[i] === '#') { while (i < code.length && code[i] !== '\n') i++; continue; }
+    // Preprocessor and Header
+    if (code[i] === '#') {
+      let start = i;
+      while (i < code.length && code[i] !== '\n') i++;
+      let line = code.slice(start, i).trim();
+      if (line.startsWith('#include')) {
+        tokens.push({ type: 'PREPROCESSOR', value: '#include' });
+        let header = line.slice(8).trim();
+        if (header) {
+          tokens.push({ type: 'HEADER', value: header });
+        }
+      }
+      continue;
+    }
     // Skip // comments
     if (code[i] === '/' && code[i+1] === '/') { while (i < code.length && code[i] !== '\n') i++; continue; }
     // Skip /* */ comments
@@ -76,7 +88,7 @@ function parseC(tokens) {
     const stmts = [];
     // Skip to main body or parse top-level statements
     while (!at('EOF')) {
-      if (at('KW','include') || (at('KW','stdio'))) { pos++; continue; }
+      if (at('KW','include') || at('KW','stdio') || at('PREPROCESSOR') || at('HEADER')) { pos++; continue; }
       if (at('PUNCT','<')) { while (!at('PUNCT','>') && !at('EOF')) pos++; maybe('PUNCT','>'); continue; }
       if (at('KW','int') || at('KW','void') || at('KW','float') || at('KW','char') || at('KW','double')) {
         const saved = pos;
@@ -528,4 +540,153 @@ function generateICG(stmts) {
   return instrs;
 }
 
-export { tokenizeC, parseC, generateICG };
+function optimizeTAC(tac) {
+  let optimized = JSON.parse(JSON.stringify(tac)); // deep copy
+  let changed = true;
+  while (changed) {
+    changed = false;
+    
+    // 0. Copy Propagation
+    const aliases = {};
+    for (let i = 0; i < optimized.length; i++) {
+      let instr = optimized[i];
+      if (aliases[instr.op1] !== undefined) instr.op1 = aliases[instr.op1];
+      if (aliases[instr.op2] !== undefined) instr.op2 = aliases[instr.op2];
+      
+      if (instr.op === ':=' && instr.result && instr.result.startsWith('t') && !instr.result.endsWith(':') && instr.op1 && !instr.op2 && isNaN(instr.op1)) {
+          aliases[instr.result] = instr.op1;
+      }
+      
+      if (instr.result && !instr.result.startsWith('t') && instr.op === ':=') { 
+          for (let key in aliases) {
+              if (aliases[key] === instr.result) delete aliases[key];
+          }
+      }
+    }
+    
+    // 1. Constant Folding & Propagation
+    const constants = {}; // result -> value
+    for (let i = 0; i < optimized.length; i++) {
+      let instr = optimized[i];
+      // Propagate constants
+      if (constants[instr.op1] !== undefined) instr.op1 = constants[instr.op1];
+      if (constants[instr.op2] !== undefined) instr.op2 = constants[instr.op2];
+      
+      // Constant folding
+      if (['+', '-', '*', '/'].includes(instr.op) && !isNaN(instr.op1) && !isNaN(instr.op2) && instr.op1 !== '' && instr.op2 !== '') {
+        let val;
+        switch(instr.op) {
+          case '+': val = Number(instr.op1) + Number(instr.op2); break;
+          case '-': val = Number(instr.op1) - Number(instr.op2); break;
+          case '*': val = Number(instr.op1) * Number(instr.op2); break;
+          case '/': val = Number(instr.op1) / Number(instr.op2); break;
+        }
+        instr.op = ':=';
+        instr.op1 = String(val);
+        instr.op2 = '';
+        changed = true;
+      }
+      
+      // Track constants
+      if (instr.op === ':=' && !isNaN(instr.op1) && instr.op1 !== '') {
+        constants[instr.result] = instr.op1;
+      } else if (instr.result) {
+        delete constants[instr.result]; // invalidate
+      }
+    }
+    
+    // 2. Algebraic simplification
+    for (let i = 0; i < optimized.length; i++) {
+        let instr = optimized[i];
+        if (instr.op === '+' && instr.op2 === '0') { instr.op = ':='; instr.op2 = ''; changed = true; }
+        else if (instr.op === '+' && instr.op1 === '0') { instr.op = ':='; instr.op1 = instr.op2; instr.op2 = ''; changed = true; }
+        else if (instr.op === '*' && instr.op2 === '1') { instr.op = ':='; instr.op2 = ''; changed = true; }
+        else if (instr.op === '*' && instr.op1 === '1') { instr.op = ':='; instr.op1 = instr.op2; instr.op2 = ''; changed = true; }
+        else if (instr.op === '*' && (instr.op1 === '0' || instr.op2 === '0')) { instr.op = ':='; instr.op1 = '0'; instr.op2 = ''; changed = true; }
+        else if (instr.op === '-' && instr.op2 === '0') { instr.op = ':='; instr.op2 = ''; changed = true; }
+        else if (instr.op === '/' && instr.op2 === '1') { instr.op = ':='; instr.op2 = ''; changed = true; }
+    }
+    
+    // 3. Dead Code Elimination
+    const used = new Set();
+    for (let i = 0; i < optimized.length; i++) {
+      if (optimized[i].op1) used.add(String(optimized[i].op1));
+      if (optimized[i].op2) used.add(String(optimized[i].op2));
+      if (optimized[i].op === 'if_false') used.add(String(optimized[i].result)); 
+      if (optimized[i].op === 'goto') used.add(String(optimized[i].op1)); // label
+      if (optimized[i].op === 'param') used.add(String(optimized[i].op1)); 
+      if (optimized[i].op === 'return') used.add(String(optimized[i].op1)); 
+    }
+    const newOptimized = [];
+    let dceChanged = false;
+    for (let i = 0; i < optimized.length; i++) {
+       let instr = optimized[i];
+       if (instr.result && instr.result.startsWith('t') && !instr.result.endsWith(':') && !used.has(String(instr.result))) {
+           dceChanged = true;
+           continue;
+       }
+       newOptimized.push(instr);
+    }
+    if (dceChanged) {
+        optimized = newOptimized;
+        changed = true;
+    }
+  }
+  return optimized;
+}
+
+function generateMachineCode(tac) {
+  const code = [];
+  let relCount = 0;
+  tac.forEach(instr => {
+    if (!instr.op && !instr.op1 && instr.result && instr.result.endsWith(':')) {
+      code.push(instr.result);
+      return;
+    }
+    if (instr.op === 'goto') { code.push(`JMP ${instr.op1}`); return; }
+    if (instr.op === 'if_false') {
+        code.push(`CMP ${instr.op1}, 0`);
+        code.push(`JNZ 2`); 
+        code.push(`JMP ${instr.op2}`);
+        return;
+    }
+    if (instr.op === 'param') { code.push(`PUSH ${instr.op1}`); return; }
+    if (instr.op === 'call') {
+        code.push(`CALL ${instr.op1}`);
+        if (instr.result) code.push(`MOV ${instr.result}, R0`);
+        return;
+    }
+    if (instr.op === 'return') {
+        if (instr.op1) code.push(`MOV R0, ${instr.op1}`);
+        code.push(`RET`);
+        return;
+    }
+    if (instr.op === ':=') {
+        code.push(`MOV ${instr.result}, ${instr.op1}`);
+        return;
+    }
+    const opMap = {'+': 'ADD', '-': 'SUB', '*': 'MUL', '/': 'DIV'};
+    if (opMap[instr.op]) {
+        code.push(`MOV R1, ${instr.op1}`);
+        code.push(`${opMap[instr.op]} R1, ${instr.op2}`);
+        code.push(`MOV ${instr.result}, R1`);
+        return;
+    }
+    const relMap = {'<': 'JL', '>': 'JG', '<=': 'JLE', '>=': 'JGE', '==': 'JE', '!=': 'JNE'};
+    if (relMap[instr.op]) {
+        code.push(`MOV R1, ${instr.op1}`);
+        code.push(`CMP R1, ${instr.op2}`);
+        code.push(`${relMap[instr.op]} TRUE_L${relCount}`);
+        code.push(`MOV ${instr.result}, 0`);
+        code.push(`JMP END_L${relCount}`);
+        code.push(`TRUE_L${relCount}:`);
+        code.push(`MOV ${instr.result}, 1`);
+        code.push(`END_L${relCount}:`);
+        relCount++;
+        return;
+    }
+  });
+  return code;
+}
+
+export { tokenizeC, parseC, generateICG, optimizeTAC, generateMachineCode };

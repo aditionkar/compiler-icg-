@@ -367,6 +367,101 @@
   color: var(--text-muted);
 }
 
+/* ===== Tab Navigation ===== */
+.tab-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  justify-content: center;
+}
+
+.tab-nav__btn {
+  padding: 0.5rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tab-nav__btn:hover {
+  background: var(--surface);
+  border-color: var(--border-accent);
+}
+
+.tab-nav__btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+/* ===== AST Visualizer ===== */
+.ast-container {
+  background: var(--surface);
+  padding: 1.5rem;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.ast-node {
+  margin-left: 1.5rem;
+  position: relative;
+  border-left: 1px dashed var(--border-accent);
+  padding-left: 1rem;
+  margin-top: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.ast-node::before {
+  content: '';
+  position: absolute;
+  top: 0.75rem;
+  left: 0;
+  width: 1rem;
+  height: 1px;
+  background-color: var(--border-accent);
+}
+
+.ast-leaf {
+  color: var(--text-primary);
+}
+
+.ast-key {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.ast-type {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.ast-val {
+  color: var(--accent-secondary);
+}
+
+.token-type {
+  color: var(--accent);
+  font-weight: 600;
+}
+.lexeme {
+  color: var(--text-primary);
+}
+.pattern code {
+  color: var(--accent-secondary);
+  background: var(--accent-glow);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 600px) {
   .app {
